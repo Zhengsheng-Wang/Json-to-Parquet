@@ -4,13 +4,43 @@ import java.util.Stack;
 
 public class Transformer {
 	/*
+	 * We extract one element in array strArr
+	 * We assume every element in array is followed by a comma immediately
+	 */
+	private static String Arr2Schema(String strArr, String strName){
+		String strRes = "";
+		strArr = strArr.replaceFirst("[\\s*", "");  //take off the first letter of '[' and following null-letter
+		
+		Stack<Character> stk = new Stack<>();
+		int nLen = strArr.length();
+		for(int nStr = 0, nStp = 0; nStp != nLen; ++nStr){
+			switch(strArr.charAt(nStr)){
+			case '"':
+				if(stk.empty()){
+					stk.push('"');
+				}
+				else{
+					if(strArr.charAt(nStr - 1) != '\\'){
+						stk.pop();
+					}
+				}
+				break;
+			case ',':
+				//true if comma is a separator for this array, but not an element within a string
+				if(stk.empty()){
+				}
+				break;
+			}
+		}
+		return strRes;
+	}
+
+	/*
 	 * encode strJson into schema. If object is a top-level object then ilayer equal to 0
 	 * if object is a nested object then ilayer equal to a positive
 	 */
-	private static String INT322Schema(String strINT32, String strName){
-	}
 	private static String Obj2Schema(String strJson, String strName, int ilayer){
-		String strSchema;
+		String strSchema = "";
 		if(ilayer == 0){
 			strSchema = "message pair {\\n";
 		}
@@ -21,20 +51,31 @@ public class Transformer {
 		List<String> liToken = Tokenize(strJson);
 		for(String str : liToken){
 			List<String> pair = ToKeyValPair(str);
-			String strType = GetType(pair.get(1));
+			String strType = GetType(pair.get(1));   //return the type of value
 			switch(strType){
 			case "group":
-				strSchema += Obj2Schema(pair.get(1), pair.get(0), 1);
+				strSchema += " required " + Obj2Schema(pair.get(1), pair.get(0), 1);
 				break;
 			case "repeated":
+				strSchema += " repeated " + Arr2Schema(pair.get(1), pair.get(0));
+				break;
+			case "INT32":
+				strSchema += " required int32 " + pair.get(0) + ";\\n";
+				break;
+			case "FLOAT":
+				strSchema += " required float " + pair.get(0) + ";\\n";
+				break;
+			case "BINARY":
+				strSchema += " required binary " + pair.get(0) + "(UTF8);\\n";  //UTF8 is added preventing from exception of "cannot be cast to string"
+				break;
 			}
 		}
 
 		if(ilayer == 0){
-			strSchema += "}\\n";
+			strSchema += "}";
 		}
 		else{
-			strSchema += "}";
+			strSchema += "}\\n";
 		}
 		return strSchema;
 	}
@@ -56,13 +97,22 @@ public class Transformer {
 			}
 		}
 	}
+
 	/*
 	 * we assume every key-value pair is followed by a comma immediately
-	 * After ToKeyValPair function the string in returned pair will contain no null-letter
+	 * After this function the string in returned pair will contain no null-letter
+	 * 
+	 * We store a key-value pair in a two-item list
+	 * Iterate through string token strPair. In order to parse out key name which may contain '"' within it's own string body
+	 * , when we meet a '"', check whether the stack is empty, if it is, that means we encounter the right side of key name.
+	 * As for extracting value string, consider the fact that a string of value is followed by ',' immediately, we just need to
+	 * replace all null-letter ahead of value string.
 	 */
 	private static List<String> ToKeyValPair(String strPair){
-		List<String> liPair = new LinkedList<String>();
+		List<String> liPair = new LinkedList<String>();   
+
 		String strKey, strVal;
+
 		Stack<Character> stk = new Stack<>();
 		int nLen = strPair.length();
 		for(int nStp = 0; nStp != nLen; ++nStp){
