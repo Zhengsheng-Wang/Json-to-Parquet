@@ -7,7 +7,7 @@ import java.util.LinkedList;
 import java.util.Stack;
 
 public class JsonFomater {
-	public static List<String> format(String strFile) throws IOException{
+	public static List<String> Format(String strFile) throws IOException{
 		List<String> liStr = new LinkedList<String>();
 		BufferedReader reader = new BufferedReader(new FileReader(new File(strFile)));
 
@@ -35,6 +35,7 @@ public class JsonFomater {
 			}
 		}
 
+		reader.close();
 		return liStr;
 	}
 }
