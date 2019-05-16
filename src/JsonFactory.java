@@ -110,14 +110,17 @@ public class JsonFactory {
 				for(int nInd1 = 0; nInd1 != nInd + 1; ++nInd1){
 					liPathTmp.add(liPath.get(nInd1));
 				}
-				JsonElement jsonEle1 = null;
-				getJsonElement(liPathTmp, jsonEle1); //Because liPath leads to an existing element
+				LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();
+				getJsonElement(liPathTmp, jsonEleContainer); //Because liPath leads to an existing element
 													 //all it's precedent elements must be existing
 											         //so liPathTmp is leading to an existing jsonEle1
-				liBranchSize.push(((JsonArray)jsonEle1.objVal).liMem.size());
+				liBranchSize.push(((JsonArray)jsonEleContainer.getLast().objVal).liMem.size());
 				liBranchCnt.push(0);
 			}
 		}	
+		if(!liBranchCnt.isEmpty()){
+			liBranchCnt.set(liBranchCnt.size() - 1, -1);
+		}
 	}
 
 	static boolean incrementBranch(LinkedList<Integer> liBranchSize, LinkedList<Integer> liBranchCnt, 
@@ -144,6 +147,11 @@ public class JsonFactory {
 		return true;
 	}
 	static boolean queryOptional(JsonElement jsonEle){
+		//repeated contains the semantic of optional
+		if(jsonEle.strType.equals("reapeated")){
+			return false;
+		}
+
 		LinkedList<Object> liPath = new LinkedList<Object>(jsonEle.liPath);
 
 		LinkedList<Integer> liBranchLoc = new LinkedList<>();
@@ -158,16 +166,16 @@ public class JsonFactory {
 		}
 		else{
 			do{
-				if(!incrementBranch(liBranchSize, liBranchCnt, nBranchNum)){
+				if(!incrementBranch(liBranchSize, liBranchCnt, nBranchNum - 1)){
 					return false;
 				}
 				else{
 					for(int nliInd = 0; nliInd != nBranchNum; ++nliInd){
 						liPath.set(liBranchLoc.get(nliInd), liBranchCnt.get(nliInd));
 					}
-					JsonElement jsonEle1 = null;
-					if(getJsonElement(liPath, jsonEle1)){
-						if(jsonEle1 == null){
+					LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();
+					if(getJsonElement(liPath, jsonEleContainer)){
+						if(jsonEleContainer.getLast().objVal == null){
 							return true;
 						}
 					}
@@ -188,24 +196,26 @@ public class JsonFactory {
 		
 		int nBranchNum = liBranchCnt.size();
 		do{
+			if(!incrementBranch(liBranchSize, liBranchCnt, nBranchNum - 1)){
+				return "NULL";
+			}
+			
 			for(int nliInd = 0; nliInd != nBranchNum; ++nliInd){
 				liPath.set(liBranchLoc.get(nliInd), liBranchCnt.get(nliInd));
 			}
-			JsonElement jsonEle1 = null;
-			if(getJsonElement(liPath, jsonEle1)){
-				if(jsonEle1 != null){
-					return jsonEle1.strType;
+			LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();
+			if(getJsonElement(liPath, jsonEleContainer)){
+				if(jsonEleContainer.getLast().objVal != null){
+					return jsonEleContainer.getLast().strType;
 				}
 			}
 		}
-		while(incrementBranch(liBranchSize, liBranchCnt, 0));
-		
-		return "NULL";
+		while(true);
 	}	
 	/*
-	 * We assume param liPath have to point to a json element(key-value pair), not a naked value
+	 * We assume parameter liPath have to point to a json element(key-value pair), not a naked value
 	 */
-	static boolean getJsonElement(LinkedList<Object> liPath, JsonElement jsonEle){
+	static boolean getJsonElement(LinkedList<Object> liPath, LinkedList<JsonElement> jsonEleContainer){
 		Object objCur = jsonObj;
 
 		for(Object objLoc : liPath){
@@ -213,10 +223,10 @@ public class JsonFactory {
 				if(objCur instanceof JsonObject){
 					String strLoc = (String)objLoc;
 					JsonObject jsonObj = (JsonObject)objCur;
-					if(!jsonObj.getJsonElement(strLoc, jsonEle)){
+					if(!jsonObj.getJsonElement(strLoc, jsonEleContainer)){
 						return false;
 					}
-					objCur = jsonEle.objVal;
+					objCur = jsonEleContainer.getLast().objVal;
 				}
 				else{
 					return false;
@@ -226,9 +236,11 @@ public class JsonFactory {
 				if(objCur instanceof JsonArray){
 					Integer nLoc = (Integer)objLoc;
 					JsonArray jsonArr = (JsonArray)objCur;
-					if(!jsonArr.getVal(nLoc, objCur)){
+					LinkedList<Object> objValContainer = new LinkedList<>();
+					if(!jsonArr.getVal(nLoc, objValContainer)){
 						return false;
 					}
+					objCur = objValContainer.getLast();
 				}
 				else{
 					return false;
@@ -258,7 +270,6 @@ public class JsonFactory {
 		JsonElement(Object objVal, String strType, Stack<Object> stk){
 			this.objVal = objVal;
 			this.strType = strType;
-			liPath = new LinkedList<>();
 			for(Object objPath : stk){
 				liPath.add(objPath);
 			}
@@ -266,7 +277,7 @@ public class JsonFactory {
 
 		String strType;
 		Object objVal;
-		LinkedList<Object> liPath; //pathList contains the path from top-level object to this element
+		LinkedList<Object> liPath = new LinkedList<>(); //pathList contains the path from top-level object to this element
 										//The element in this list could be either Integer representing a
 										//index of this in a array, or String representing a name of a key-value
 	}
@@ -279,13 +290,15 @@ public class JsonFactory {
 		}
 		
 		/*
-		 * @param strKey: strKey is the key string of the json element of this json object to be retrieved
-		 * @param jsonEle: jsonEle is a reference refering to the item retrieved by this function
+		 * @param strKey: strKey is the key string of the Json element of this Json object to be retrieved
+		 * @param jsonEle: jsonEle is a reference referring to the item retrieved by this function
 		 */
-		boolean getJsonElement(String strKey, JsonElement jsonEle){
-			for(JsonElement jsonEle1 : liMem){
-				if(jsonEle1.liPath.get(0).equals(strKey)){
-					jsonEle = jsonEle1;
+		boolean getJsonElement(String strKey, LinkedList<JsonElement> jsonEleContainer){
+			jsonEleContainer.clear();
+			jsonEleContainer.push(null);
+			for(JsonElement jsonEle : liMem){
+				if(jsonEle.liPath.getLast().equals(strKey)){
+					jsonEleContainer.set(0, jsonEle);
 					return true;
 				}
 			}
@@ -305,9 +318,11 @@ public class JsonFactory {
 		void addValue(Object obj){
 			liMem.add(obj);
 		}
-		boolean getVal(Integer nInd, Object objVal){
-			objVal = liMem.get(nInd);
-			return objVal == null ? false : true;
+		boolean getVal(Integer nInd, LinkedList<Object> objValContainer){
+			objValContainer.clear();
+			objValContainer.push(null);
+			objValContainer.set(0, liMem.get(nInd));
+			return objValContainer.getLast() == null ? false : true;
 		}
 		LinkedList<Object> liMem = new LinkedList<>();
 	}

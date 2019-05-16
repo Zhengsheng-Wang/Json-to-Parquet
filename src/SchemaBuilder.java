@@ -2,24 +2,109 @@ import java.util.List;
 import java.util.LinkedList;
 import java.util.Stack;
 
+import org.apache.hadoop.hive.metastore.api.ThriftHiveMetastore.create_database_args;
+
 public class SchemaBuilder {
 	static StringBuilder strSchema;
 
 	public void transform(JsonFactory.JsonObject jsonObj){
 		strSchema = new StringBuilder();
 		strSchema.append("message pair{\n");
-		Object2Schema(jsonObj, strSchema);
+		object2Schema(jsonObj, strSchema);
 		strSchema.append("}");
 	}
 	/*
 	 * Encode strOri into schema. If object is a top-level object then ilayer equal to 0
 	 * if object is a nested object then ilayer equal to a positive
 	 */
-	static void Object2Schema(JsonFactory.JsonObject jsonObj, StringBuilder strSchema){
-		strSchema.append("{\n");
-		for(JsonElement pair : jsonObj.liMem){
+	private void array2Schema(JsonFactory.JsonArray jsonArr, StringBuilder strSchema, String strName){
+		for(Object obj : jsonArr.liMem){
+			if(obj instanceof JsonFactory.JsonObject){
+				JsonFactory.JsonObject jsonObj = (JsonFactory.JsonObject)obj;
+				strSchema.append("group " + strName + "{\n");
+				object2Schema(jsonObj, strSchema);
+				strSchema.append("}\n");
+			}
+			else if(obj instanceof JsonFactory.JsonArray){
+				JsonFactory.JsonArray jsonArray = (JsonFactory.JsonArray)obj;
+				strSchema.append("repeated ");
+				array2Schema(jsonArray, strSchema, strName);
+			}
+			else{
+				if(obj == null){
+					continue;
+				}
+				else{
+					if(obj instanceof Integer){
+						strSchema.append("int32 " + strName + ";\n");
+					}
+					else if(obj instanceof Float){
+						strSchema.append("float " + strName + ";\n");
+					}
+					else if(obj instanceof String){
+						strSchema.append("binary " + strName + "(UTF8);\n");
+					}
+					else if(obj instanceof Boolean){
+						strSchema.append("boolean " + strName + ";\n");
+					}
+				}
+			}
+			if(obj != null){
+				return;
+			}
 		}
-		strSchema.append("}");
+	}
+	private void object2Schema(JsonFactory.JsonObject jsonObj, StringBuilder strSchema){
+		for(JsonFactory.JsonElement jsonEle : jsonObj.liMem){
+
+			String strType;
+			if(JsonFactory.queryOptional(jsonEle)){
+				strSchema.append("optional ");
+				if(jsonEle.strType.equals("NULL")){
+					strType = JsonFactory.getJsonValType(jsonEle);
+				}
+				else{
+					strType = jsonEle.strType;
+				}
+			}
+			else{
+				if(jsonEle.strType.equals("NULL")){
+					continue;
+				}
+				else if(jsonEle.strType.equals("repeated")){
+					strSchema.append("repeated ");
+				}
+				else{
+					strSchema.append("required ");
+				}
+				strType = jsonEle.strType;
+			}
+
+			switch (strType) {
+			case "group":
+				strSchema.append("group " + jsonEle.liPath.getLast() + "{\n");
+				object2Schema((JsonFactory.JsonObject)jsonEle.objVal, strSchema);
+				strSchema.append("}\n");
+				break;
+			case "repeated":
+				array2Schema((JsonFactory.JsonArray)jsonEle.objVal, strSchema, (String)jsonEle.liPath.getLast());
+				break;
+			case "INT32":
+				strSchema.append("int32 " + jsonEle.liPath.getLast() + ";\n");
+				break;
+			case "FLOAT":
+				strSchema.append("float " + jsonEle.liPath.getLast() + ";\n");
+				break;
+			case "BINARY":
+				strSchema.append("binary " + jsonEle.liPath.getLast() + "(UTF8);\n");
+				break;
+			case "BOOLEAN":
+				strSchema.append("boolean " + jsonEle.liPath.getLast() + ";\n");
+				break;
+			default:
+				break;
+			}
+		}
 	}
 	
 	
