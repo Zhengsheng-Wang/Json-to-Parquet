@@ -2,8 +2,6 @@ import java.util.List;
 import java.util.LinkedList;
 import java.util.Stack;
 
-import org.apache.hadoop.hive.metastore.api.ThriftHiveMetastore.create_database_args;
-
 public class SchemaBuilder {
 	static StringBuilder strSchema;
 
@@ -27,7 +25,6 @@ public class SchemaBuilder {
 			}
 			else if(obj instanceof JsonFactory.JsonArray){
 				JsonFactory.JsonArray jsonArray = (JsonFactory.JsonArray)obj;
-				strSchema.append("repeated ");
 				array2Schema(jsonArray, strSchema, strName);
 			}
 			else{

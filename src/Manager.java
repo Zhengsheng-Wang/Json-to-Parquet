@@ -25,7 +25,8 @@ public class Manager {
 			+ "repeated int32 my;\n"
 			+ "}\n" + "}";
 		*/
-		Writer.writeParquet(liJson.get(0), strSchema.toString(), strOutPath);
+		Writer writer = new Writer();
+		writer.write(strSchema.toString(), jsonObj, strOutPath);
 		return;
 	}
 }
