@@ -28,34 +28,6 @@ public class JsonElement {
 		}
 	}
 
-	/*
-	//Return whether this element is optional
-	public boolean isOptional(){
-		for(int nRevPathInd = liPath.size() - 1; nRevPathInd != -1; --nRevPathInd){
-			Object objLoc = liPath.get(nRevPathInd);
-			if(objLoc instanceof Integer){
-				Integer nInd = (Integer)objLoc;
-			}
-		}
-
-		return false;
-	}
-	public void getSchema(StringBuilder strBuilder){
-		switch (strType) {
-		case "group":
-			strBuilder.append("group " + (String)liPath.getLast() + "{\n");
-			//TODO
-			strBuilder.append("}\n");
-			break;
-		case "repeated":
-			break;
-
-		default:
-			break;
-		}
-	}
-	*/
-	
 	String strType;
 	Object objVal;
 	LinkedList<Object> liPath; //pathList contains the path from top-level object to this element
