@@ -1,20 +1,20 @@
 import java.util.List;
-import java.util.LinkedList;
 import java.io.IOException;
 import java.net.URISyntaxException;
 
 public class Manager {
 	public static void main(String args[]) throws IOException, URISyntaxException{
 		List<String> liJson = JsonFomater.Format(args[0]);
-		String strOutPath = args[1];
+		String strOutPath = args[1] + args[0].substring(args[0].lastIndexOf("\\") + 1, args[0].lastIndexOf("."))
+				+ ".parq";
 
 		JsonFactory jsonFactory = new JsonFactory();
 		jsonFactory.run(liJson.get(0));
-		JsonFactory.JsonObject jsonObj = jsonFactory.jsonObj;
+		JsonFactory.JsonObject jsonObj = JsonFactory.jsonObj;
 		
 		SchemaBuilder schemaBuilder = new SchemaBuilder();
 		schemaBuilder.transform(jsonObj);
-		StringBuilder strSchema = schemaBuilder.strSchema;
+		StringBuilder strSchema = SchemaBuilder.strSchema;
 		
 		/*
 		String strSchema1 = "message pair{\n" + 
@@ -26,6 +26,7 @@ public class Manager {
 			+ "}\n" + "}";
 		*/
 		Writer writer = new Writer();
+
 		writer.write(strSchema.toString(), jsonObj, strOutPath);
 		return;
 	}

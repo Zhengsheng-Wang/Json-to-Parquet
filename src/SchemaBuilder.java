@@ -1,7 +1,10 @@
-import java.util.List;
 import java.util.LinkedList;
 import java.util.Stack;
 
+/*
+ * SchemaBuilder类定义Schema产生器
+ * SchemaBuilder类实例调用transform函数，根据JsonFactory.JsonObject对象，产生该对象的schema
+ */
 public class SchemaBuilder {
 	static StringBuilder strSchema;
 
@@ -11,9 +14,12 @@ public class SchemaBuilder {
 		object2Schema(jsonObj, strSchema);
 		strSchema.append("}");
 	}
+	
 	/*
-	 * Encode strOri into schema. If object is a top-level object then ilayer equal to 0
-	 * if object is a nested object then ilayer equal to a positive
+	 * array2Schema函数根据传入的JsonArr对象jsonArr和这个数组对应的键值strName产生这个数组键值对的schema
+	 * 在数组的元素上迭代，获取元素的类型
+	 * 如果数组里面又嵌套有数组，可以直接将嵌套在内的数组忽略，因为多个repeated和一个repeated产生的效果相同
+	 * 只要得到了数组中某一元素的类型(类型不为NULL)，就可以结束循环，因为数组中元素的类型相同。
 	 */
 	private void array2Schema(JsonFactory.JsonArray jsonArr, StringBuilder strSchema, String strName){
 		for(Object obj : jsonArr.liMem){
@@ -51,6 +57,12 @@ public class SchemaBuilder {
 			}
 		}
 	}
+	
+	/*
+	 * object2Schema函数根据传入的json对象jsonObj，产生相应的schema
+	 * 如果jsonEle是optional的，并且此jsonEle类型为NULL，则通过它的同等键值对找到它的类型
+	 * 如果jsonEle不是optinal的，并且类型为NULL，直接忽略它的存在，因为无法通过它的同等键值对确定它的类型
+	 */
 	private void object2Schema(JsonFactory.JsonObject jsonObj, StringBuilder strSchema){
 		for(JsonFactory.JsonElement jsonEle : jsonObj.liMem){
 
@@ -58,13 +70,15 @@ public class SchemaBuilder {
 			if(JsonFactory.queryOptional(jsonEle)){
 				strSchema.append("optional ");
 				if(jsonEle.strType.equals("NULL")){
-					strType = JsonFactory.getJsonValType(jsonEle);
+					jsonEle = JsonFactory.getFirstPeerJsonElement(jsonEle);
+					strType = jsonEle.strType;
 				}
 				else{
 					strType = jsonEle.strType;
 				}
 			}
 			else{
+				//当jsonEle不是某一个数组的后代键值对，并且它类型为NULL，忽略它
 				if(jsonEle.strType.equals("NULL")){
 					continue;
 				}
@@ -107,7 +121,7 @@ public class SchemaBuilder {
 	
 	
 	/*
-	 * Get the type of value string in a key-value pair. Argument strVal contains no null-letter.
+	 * 取得传入键值对字符串strVal的类型，此时必须保证strVal的开头和结尾不包含任何空字符
 	 * Type contains following "group, repeated, BINARY, FLOAT, INT32, BOOLEAN, NULL"
 	 */
 	static String getType(String strVal){
@@ -137,12 +151,11 @@ public class SchemaBuilder {
 	}
 
 	/*
-	 * Split key-value pair strPair into a list of two items by ':', which are key and value respectively.
-	 * After this function the string in returned pair will contain no null-letter.
-	 * We store a key-value pair in a two-item list.
+	 * 将键值对字符串strPair按照冒号分割成首尾不包含任何空字符的键值字符串和值字符串
+	 * 返回存储有两个字符串的链表
 	 */
-	static List<String> toKeyValPair(String strPair){
-		List<String> liPair = new LinkedList<String>();   
+	static LinkedList<String> toKeyValPair(String strPair){
+		LinkedList<String> liPair = new LinkedList<String>();   
 
 		strPair = tailorStr(strPair);
 		int nStp = 0;
@@ -187,8 +200,7 @@ public class SchemaBuilder {
 	}
 
 	/*
-	 * Tokenize string strJson using splitting char ',', 
-	 * depending on the open and close brace chars we set.
+	 * 根据传入的边界字符cbrace，将原始字符串strOri，按照逗号划分为键值对token
 	 */
 	static LinkedList<String> tokenize(String strOri, char[] cbrace){
 		// truncate the prefix until '"' and suffix invalid letters and append a ',' to it
@@ -258,7 +270,7 @@ public class SchemaBuilder {
 	}
 
 	/*
-	 * remove the head null-letters and tail null-letters of oriStr
+	 * 去除字符串首尾的空字符
 	 */
 	static String tailorStr(String oriStr){
 		String resStr = "";
