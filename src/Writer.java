@@ -51,11 +51,11 @@ public class Writer{
 					continue;
 				}
 				else{
-					if(obj instanceof Integer){
-						grp.append(strName, (Integer)obj);
+					if(obj instanceof Long){
+						grp.append(strName, ((Long)obj).intValue());
 					}
-					else if(obj instanceof Float){
-						grp.append(strName, (Float)obj);
+					else if(obj instanceof Double){
+						grp.append(strName, ((Double)obj).floatValue());
 					}
 					else if(obj instanceof String){
 						grp.append(strName, (String)obj);
@@ -77,6 +77,10 @@ public class Writer{
 
 			switch (jsonEle.strType) {
 			case "group":
+				//因为无法向hdfs写入空元组，所以写入parquet的时候跳过空元组
+				if(((JsonFactory.JsonObject)jsonEle.objVal).liMem.isEmpty()){
+					break;
+				}
 				Group grpNew = grp.addGroup(strName);
 				writeGroup(grpNew, (JsonFactory.JsonObject)jsonEle.objVal);
 				break;
@@ -84,10 +88,10 @@ public class Writer{
 				writeArray(grp, (JsonFactory.JsonArray)jsonEle.objVal, strName);
 				break;
 			case "INT32":
-				grp.append(strName, (Integer)jsonEle.objVal);
+				grp.append(strName, ((Long)jsonEle.objVal).intValue());
 				break;
 			case "FLOAT":
-				grp.append(strName, (Float)jsonEle.objVal);
+				grp.append(strName, ((Double)jsonEle.objVal).floatValue());
 				break;
 			case "BOOLEAN":
 				grp.append(strName, (Boolean)jsonEle.objVal);

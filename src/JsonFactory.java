@@ -3,19 +3,146 @@ import java.util.List;
 import java.util.Stack;
 
 /*
- *@class JsonFactory JsonFactory的成员run函数接收一个代表json字符串的字符串常量strJson
- *调用buildObj函数建立JsonFactory的内部类JsonObject定义的json对象，并返回该对象
+ *@class JsonFactory 建立run函数接收的json数据strJson的内部表示
+ *
+ *为了能够支持json数据中的所有大小的数值型数据元素，我们将Json数据中的
+ *所有整型和浮点型分别按照为Long型和Double型存储于内部表示中，但在内部表示的JsonElement.strType
+ *中还是显示为INT32和FLOAT
+ *
+ *写入parquet文件时，将两者分别转化为Int型和Float型存入
  */
 public class JsonFactory {
 	static JsonObject jsonObj;       //当前正在处理的顶层元组
-	static JsonObject jsonObjCur;     //目前存在缺值（没有某键值对）的元组，针对用null填补jsonObj时的情形
 	static Stack<Object> stkPath = new Stack<>(); //Static stack tracing global path
 
+	/*
+	 *@func  run函数接收一个代表json数据的字符串常量strJson
+	 *	         调用buildObj函数建立JsonFactory的内部类JsonObject定义的json对象
+	 */
 	public void run(String strJson){
 		jsonObj = buildObj(strJson);
-		fillObjWithNull(jsonObj);
+		fillObjWithNull(jsonObj);    //
+		long2doubleInObject(jsonObj);  //支持整型类型自动提升为Double型
+		setNullInJsonObject(jsonObj); 
 	}
 
+	/*
+	 * 因为无法向hdfs写入空的元组，所以将所有空元组赋值为空
+	 */
+	private void setNullInJsonObject(JsonObject jsonObj){
+		for(int nInd = 0; nInd != jsonObj.liMem.size(); ++nInd){
+			JsonElement jsonEle = jsonObj.liMem.get(nInd);
+			
+			if(jsonEle.strType.equals("group")){
+				if(((JsonObject)jsonEle.objVal).liMem.isEmpty()){
+					jsonEle.objVal = null;
+					jsonEle.strType = "NULL";
+				}
+				else{
+					setNullInJsonObject((JsonObject)jsonEle.objVal);  //如果当前元素也为元组，则递归调用
+				}
+			}
+		}
+	}
+	//////////////////////////////////////
+	/*
+	 * 依次检查Long类型键值对jsonEle的对等键值对，如果发现有对等键值对类型为Double，则将当前键值对jsonEle的类型
+	 * 提升为Double
+	 */
+	private void long2double(JsonElement jsonEle){
+		if(jsonEle.strType.equals("INT32")){
+			LinkedList<Object> liPath = new LinkedList<>(jsonEle.liPath);
+			
+			LinkedList<Integer> liBranchLoc = new LinkedList<>();
+			initialList(liBranchLoc, liPath);
+			
+			LinkedList<Object> objContainer = new LinkedList<>();
+			while(incrementBranch(liBranchLoc, liPath)){
+				if(getObj(liPath, objContainer)){
+					if(((JsonElement)objContainer.getLast()).strType.equals("FLOAT")){
+						jsonEle.objVal = 
+								new Double(((Long)jsonEle.objVal).doubleValue());
+						jsonEle.strType = "FLOAT";
+						break;
+					}
+				}
+			}
+		}
+	}
+	/*
+	 * 依次对数组jsonArr内的元素进行类型检查，有一下三种情况：
+	 * 1，元素为数组，则递归调用
+	 * 2，元素为元组，则调用long2DoubleInObject
+	 * 3，元素为Long值，则：先遍历此元素的所有对等数组元素，如果发现有Double类型的对等数组元素，则将此元素以及与它处于
+	 *    同一数组的后面的类型为Long的元素均提升为Double型数据
+	 */
+	private void long2doubleInArray(JsonArray jsonArr, LinkedList<Object> liPath){
+		LinkedList<Object> liPath1 = new LinkedList<>(liPath);
+
+		int nLoc = 0;
+		for(Object obj : jsonArr.liMem){
+			liPath1.add(nLoc);
+			if(obj instanceof JsonArray){
+				long2doubleInArray((JsonArray)obj, liPath1);
+			}
+			else if(obj instanceof JsonObject){
+				long2doubleInObject((JsonObject)obj);
+			}
+			else if(obj instanceof Long){
+				LinkedList<Integer> liBranchLoc = new LinkedList<>();
+				
+				initialList(liBranchLoc, liPath1);
+				LinkedList<Object> objContainer = new LinkedList<>();
+
+				//遍历它的同等数组元素
+				while(incrementBranch(liBranchLoc, liPath1)){
+					if(getObj(liPath1, objContainer)){
+						Object obj1 = objContainer.getLast();
+						//发现一个对等数组元素类型为Double
+						if(obj1 instanceof Double){
+							//提升本元素的类型至Double
+							jsonArr.liMem.set(nLoc, new Double(((Long)obj).doubleValue()));
+							
+							//挨个提升与其属于同一数组的后面的元素的类型
+							if(jsonArr.liMem.size() > nLoc + 1){
+								int nLoc1 = nLoc + 1;
+								for(Object obj2 : jsonArr.liMem.subList(nLoc + 1, jsonArr.liMem.size())){
+									if(obj2 instanceof Long){
+										jsonArr.liMem.set(nLoc1, new Double(((Long)obj2).doubleValue()));
+									}
+									++nLoc1;
+								}
+								return;
+							}
+							else{
+								return;
+							}
+						}
+					}
+				}
+			}
+			
+			liPath1.removeLast();
+			++nLoc;
+		}
+	}
+	/*
+	 * 把元组中含有double类型的对等键值对的long类型的键值对转化为double类型
+	 */
+	private void long2doubleInObject(JsonObject jsonObj){
+		for(JsonElement jsonEle : jsonObj.liMem){
+			if(jsonEle.strType.equals("repeated")){
+				long2doubleInArray((JsonArray)jsonEle.objVal, jsonEle.liPath);
+			}
+			else if(jsonEle.strType.equals("group")){
+				long2doubleInObject((JsonObject)jsonEle.objVal);
+			}
+			else if(jsonEle.strType.equals("INT32")){
+				long2double(jsonEle);
+			}
+		}
+	}
+	////////////////////////////////////
 	/*
 	 * 向数组jsonArr中的元素填补null
 	 */
@@ -37,7 +164,7 @@ public class JsonFactory {
 	 */
 	private void fillObjWithNull(JsonObject jsonObj){
 		for(JsonElement jsonEle : jsonObj.liMem){
-			fillPeerWithNull(jsonEle);
+			fillPeerWithNull(jsonEle);   //先将当前键值对的对等空键值对赋值为null
 			if(jsonEle.strType.equals("group")){
 				fillObjWithNull((JsonObject)jsonEle.objVal);
 			}
@@ -53,24 +180,21 @@ public class JsonFactory {
 		LinkedList<Object> liPath = new LinkedList<Object>(jsonEle.liPath);
 
 		LinkedList<Integer> liBranchLoc = new LinkedList<>();
-		LinkedList<Integer> liBranchSize = new LinkedList<>();
-		LinkedList<Integer> liBranchCnt = new LinkedList<>(); 
 		
-		initialList(liBranchLoc, liBranchSize, liBranchCnt, liPath);
-		int nBranchNum = liBranchSize.size();
+		initialList(liBranchLoc, liPath);
 		
-		LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();  //没用上，只是为了调用getJsonElement函数
-		while(incrementBranch(liBranchSize, liBranchCnt, nBranchNum - 1)){
-			for(int nliInd = 0; nliInd != nBranchNum; ++nliInd){
-				liPath.set(liBranchLoc.get(nliInd), liBranchCnt.get(nliInd));
-			}
-			
-			//如果没有找到这个键值对
-			if(!getJsonElement(liPath, jsonEleContainer)){
-				jsonObjCur.addPair(new JsonElement(null, "NULL", stkPath));
+		LinkedList<Object> objContainer = new LinkedList<>();  //没用上，只是为了调用getObj函数
+		while(incrementBranch(liBranchLoc, liPath)){
+			//如果没有找到这个键值对,则将阻碍这个对等键值对查找路径的键值对的键值赋值为null
+			//阻碍查找路径的结点只能是键值对结点，因为每次递增路径的时候都是按照 当前路径设置过数组大小的
+			//数组索引不会越界
+			if(!getObj(liPath, objContainer)){
+				Object objPnt = objContainer.getLast();  //阻碍键值对被找到的上层数组元素
+				((JsonObject)objPnt).addPair(new JsonElement(null, "NULL", stkPath));
 			}
 		}
 	}
+	///////////////////////////////////////
 	/*
 	 * @func buildArr buildArr函数接收代表数组值（'['与']'标志的位于json字符串冒号后的值）的字符串strArr，
 	 * 产生JsonFactory内部类JsonArray定义的数组对象，并返回该对象
@@ -95,10 +219,10 @@ public class JsonFactory {
 				jsonArray.addValue(buildArr(str));
 				break;
 			case "INT32":
-				jsonArray.addValue(Integer.parseInt(str));
+				jsonArray.addValue(Long.parseLong(str));
 				break;
 			case "FLOAT":
-				jsonArray.addValue(Float.parseFloat(str));
+				jsonArray.addValue(Double.parseDouble(str));
 				break;
 			case "BINARY":
 				jsonArray.addValue(str);
@@ -115,6 +239,7 @@ public class JsonFactory {
 			
 			stkPath.pop();  //弹出当前位置，准备入栈下一位置
 		}
+		
 		return jsonArray;
 	}
 	public JsonObject buildObj(String strJson){;
@@ -140,11 +265,11 @@ public class JsonFactory {
 				jsonObject.addPair(jsonElement);
 				break;
 			case "INT32":
-				jsonElement = new JsonElement(Integer.parseInt(pair.get(1)), strType, stkPath);
+				jsonElement = new JsonElement(Long.parseLong(pair.get(1)), strType, stkPath);
 				jsonObject.addPair(jsonElement);
 				break;
 			case "FLOAT":
-				jsonElement = new JsonElement(Float.parseFloat(pair.get(1)), strType, stkPath);
+				jsonElement = new JsonElement(Double.parseDouble(pair.get(1)), strType, stkPath);
 				jsonObject.addPair(jsonElement);
 				break;
 			case "BINARY":
@@ -165,6 +290,7 @@ public class JsonFactory {
 			
 			stkPath.pop();
 		}
+		
 		return jsonObject;
 	}	
 
@@ -179,62 +305,87 @@ public class JsonFactory {
 	 * ，liBranchSize，liBranchCnt三个链表中，liBranchLoc存放该branch点在liPath中的位置（从顶层JsonObject的
 	 * 键值算起），liBranchSize存放该branch点的数组元素个数，liBranchCnt中对应的位置初始化为零
 	 */
-	static void initialList(LinkedList<Integer> liBranchLoc, LinkedList<Integer> liBranchSize, LinkedList<Integer> liBranchCnt
-			, LinkedList<Object> liPath){
-		for(int nInd = 0; nInd != liPath.size() - 1; ++nInd){
-			//如果liPath在nInd+1处的位置类型为整型，则说明该处存放的是branch点
-			if(liPath.get(nInd + 1) instanceof Integer){
-				liBranchLoc.push(nInd + 1);
-
-				//取出到该branch点对应的值为数组的json键值对，得到数组大小
-				LinkedList<Object> liPathTmp = new LinkedList<>();
-				for(int nInd1 = 0; nInd1 != nInd + 1; ++nInd1){
-					liPathTmp.add(liPath.get(nInd1));
-				}
-				
-				//因为Java对于引用的参数采用值传递，所以建立容纳JsonElement类型引用的LinkedList进行参数传递
-				//这样，经过getJsonElement函数后，链表内存放的唯一一个JsonElemnt类型的引用指向的是键值对对象
-				LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();
-				getJsonElement(liPathTmp, jsonEleContainer); 
-				liBranchSize.push(((JsonArray)jsonEleContainer.getLast().objVal).liMem.size());
-				liBranchCnt.push(0);
+	static void initialList(LinkedList<Integer> liBranchLoc, LinkedList<Object> liPath){
+		for(int nInd = 1; nInd != liPath.size(); ++nInd){
+			/*
+			 *因为json数据的数组不可能直接出现在json数据中，在最上面一定有一个键值，所以nInd从1而不是0开始
+			 *如果liPath在nInd处的位置类型为整型，则说明该处存放的是branch点。
+			 *在找到branch点的同时，将liPath的branch点赋值为零
+			*/
+			if(liPath.get(nInd) instanceof Integer){
+				liBranchLoc.add(nInd);
+				liPath.set(nInd, 0);
 			}
 		}	
-
-		//此处在后面说明
-		if(!liBranchCnt.isEmpty()){
-			liBranchCnt.set(liBranchCnt.size() - 1, -1);
+		
+		/*
+		 * 将liPath中最后一个路径类型为Integer的路径置为-1
+		 */
+		for(int nInd = liPath.size() - 1; nInd != -1; --nInd){
+			if(liPath.get(nInd) instanceof Integer){
+				liPath.set(nInd, -1);
+				return;
+			}
 		}
 	}
 
-	/*
-	 * 将liBranchCnt的第nlevel-1个元素加1，如果liBranchCnt.get(nlevel - 1) + 1 == liBranchSize.get(nlevel - 1)
-	 * 则将liBranchCnt的第nlevel-1个元素清零，在nlevel-2个元素上+1
-	 * 如果在累加之前发现liBranchCnt各位都已达到最大值，则已溢出，返回false，如果累加成功返回true
-	 */
-	static boolean incrementBranch(LinkedList<Integer> liBranchSize, LinkedList<Integer> liBranchCnt, 
-			int nlevel){
-		boolean boverflow = true;
-		for(int nliInd = 0; nliInd != liBranchCnt.size(); ++nliInd){
-			if(liBranchCnt.get(nliInd) < liBranchSize.get(nliInd) - 1){
-				boverflow = false;
-				break;
-			}
-		}
-		if(boverflow){
+	static boolean incrementBranch(LinkedList<Integer> liBranchLoc, LinkedList<Object> liPath){
+		//如果没有 经过数组结点直接返回false退出
+		if(liBranchLoc.size() == 0){
 			return false;
-		}	
+		}
 
-		int num = liBranchCnt.get(nlevel) + 1;
-		if(num == liBranchSize.get(nlevel)){
-			liBranchCnt.set(nlevel, 0);
-			incrementBranch(liBranchSize, liBranchCnt, nlevel - 1);
+		LinkedList<Object> liPathTmp = new LinkedList<>(); //存储寻找到数组结点的临时路径
+
+		/*
+		 * liPath上branch结点的数值表示在路径经过某一数组时选择了其中的第几个元素
+		 * 外层for循环在路径liPath的第liBranchLoc.get(nInd)个结点上加1，在每次循环中先获取这个结点上的当前最大值
+		 * ，如果当前结点值增加1后大于最大值，则将该结点值置0，进入下一层循环（进位）。并返回true，表示递增成功。
+		 * 如果最高位在加1后会溢出，则返回false表示溢出
+		 */
+		for(int nInd = liBranchLoc.size() - 1; nInd != -1; --nInd){
+			int nLoc = (Integer)liPath.get(liBranchLoc.get(nInd));
+
+			liPathTmp.clear();
+			//获得到该数组结点的路径，存入liPathTmp
+			for(int nInd1 = 0; nInd1 != liBranchLoc.get(nInd); ++nInd1){
+				liPathTmp.add(liPath.get(nInd1));
+			}
+			
+			LinkedList<Object> objContainer = new LinkedList<>();
+			getObj(liPathTmp, objContainer);   //一定能取得有效值
+
+			//取出当前数组的元素个数，即结点的最大值
+			//objPnt是取出的父结点
+			Object objPnt = objContainer.getLast();
+			int nSize = 0;
+			//如果父结点是数组键值对
+			if(objPnt instanceof JsonElement){
+				nSize = ((JsonArray)((JsonElement)objContainer.getLast()).objVal).liMem.size();
+			}
+			//如果父结点是数组值，也就是说当前结点是一个嵌套在数组里的数组
+			else{
+				nSize = ((JsonArray)objPnt).liMem.size();
+			}
+			
+			if(nLoc + 1 == nSize){
+				if(nInd != 0){
+					liPath.set(liBranchLoc.get(nInd), 0);
+					continue;
+				}
+				else{
+					return false;
+				}
+			}
+			else{
+				liPath.set(liBranchLoc.get(nInd), nLoc + 1);
+				return true;
+			}
 		}
-		else{
-			liBranchCnt.set(nlevel, num);
-		}
-		return true;
+		
+		return false;
 	}
+	
 
 	/*
 	 * 查询传入的JsonElement是否为optional，如果这个键值对对象的值类型为数组类型，则返回结果为optional
@@ -250,42 +401,34 @@ public class JsonFactory {
 		LinkedList<Object> liPath = new LinkedList<Object>(jsonEle.liPath);
 
 		LinkedList<Integer> liBranchLoc = new LinkedList<>();
-		LinkedList<Integer> liBranchSize = new LinkedList<>();
-		LinkedList<Integer> liBranchCnt = new LinkedList<>(); //liBranchCnt 表示路径在当前此数组处的位置值
-		//由于每次获取对等键值对象时都要先增加对象的路径值，如果从第0条路径进入do-while循环，则第0条路径上的
-		//值永远无法取出，所以在initialList函数的最后，如果路径中存在branch结点（liBranchCnt的长度不为0），
-		//则先将表示当前迭代路径的liBranchCnt的最后一个元素设置为-1
 		
-		initialList(liBranchLoc, liBranchSize, liBranchCnt, liPath);
+		initialList(liBranchLoc, liPath);
 		
-		int nBranchNum = liBranchCnt.size();
-		if(nBranchNum == 0){
-			return false;
-		}
-		else{
-			do{
-				if(!incrementBranch(liBranchSize, liBranchCnt, nBranchNum - 1)){
-					return false;
+		boolean bNullExisting = false;  //有对等值类型为NULL、或某一对等键值根本不存在的标志
+		do{
+			if(!incrementBranch(liBranchLoc, liPath)){
+				break;
+			}
+			else{
+				LinkedList<Object> objContainer = new LinkedList<>();
+				if(getObj(liPath, objContainer)){
+					//如果键值对jsonEle有属性为repeated的对等键值对，返回false
+					if(((JsonElement)objContainer.getLast()).strType.equals("repeated")){
+						return false;
+					}
+					if(((JsonElement)objContainer.getLast()).strType.equals("NULL")){
+						bNullExisting = true;
+					}
 				}
 				else{
-					for(int nliInd = 0; nliInd != nBranchNum; ++nliInd){
-						liPath.set(liBranchLoc.get(nliInd), liBranchCnt.get(nliInd));
-					}
-					LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();
-					if(getJsonElement(liPath, jsonEleContainer)){
-						if(jsonEleContainer.getLast().objVal == null){
-							return true;
-						}
-					}
-					else{
-						//如果liPath指示的值不存在,则说明该键值对对象存在被忽略的对象,该键值对为optional
-						return true;
-					}
+					//如果liPath指示的值不存在,则说明该键值对对象存在被忽略的对象,该键值可能为optional
+					bNullExisting = true;
 				}
 			}
-			while(true);
 		}
+		while(true);
 		
+		return bNullExisting;
 	}
 	/*
 	 * 得到键值对的值的类型，如果传入的jsonEle的值为null，则遍历它的对等键值对，判断它该有的
@@ -299,24 +442,18 @@ public class JsonFactory {
 		LinkedList<Object> liPath = new LinkedList<Object>(jsonEle.liPath);
 
 		LinkedList<Integer> liBranchLoc = new LinkedList<>();
-		LinkedList<Integer> liBranchSize = new LinkedList<>();
-		LinkedList<Integer> liBranchCnt = new LinkedList<>();
 		
-		initialList(liBranchLoc, liBranchSize, liBranchCnt, liPath);
+		initialList(liBranchLoc, liPath);
 		
-		int nBranchNum = liBranchCnt.size();
 		do{
-			if(!incrementBranch(liBranchSize, liBranchCnt, nBranchNum - 1)){
+			if(!incrementBranch(liBranchLoc, liPath)){
 				return "NULL";
 			}
-			
-			for(int nliInd = 0; nliInd != nBranchNum; ++nliInd){
-				liPath.set(liBranchLoc.get(nliInd), liBranchCnt.get(nliInd));
-			}
-			LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();
-			if(getJsonElement(liPath, jsonEleContainer)){
-				if(jsonEleContainer.getLast().objVal != null){
-					return jsonEleContainer.getLast().strType;
+
+			LinkedList<Object> objContainer = new LinkedList<>();
+			if(getObj(liPath, objContainer)){
+				if(((JsonElement)objContainer.getLast()).objVal != null){
+					return ((JsonElement)objContainer.getLast()).strType;
 				}
 			}
 		}
@@ -327,20 +464,14 @@ public class JsonFactory {
 		LinkedList<Object> liPath = new LinkedList<Object>(jsonEle.liPath);
 
 		LinkedList<Integer> liBranchLoc = new LinkedList<>();
-		LinkedList<Integer> liBranchSize = new LinkedList<>();
-		LinkedList<Integer> liBranchCnt = new LinkedList<>(); 
 		
-		initialList(liBranchLoc, liBranchSize, liBranchCnt, liPath);
-		int nBranchNum = liBranchSize.size();
+		initialList(liBranchLoc, liPath);
 		
-		LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();
-		while(incrementBranch(liBranchSize, liBranchCnt, nBranchNum - 1)){
-			for(int nliInd = 0; nliInd != nBranchNum; ++nliInd){
-				liPath.set(liBranchLoc.get(nliInd), liBranchCnt.get(nliInd));
-			}
-			
-			if(getJsonElement(liPath, jsonEleContainer) && !jsonEleContainer.getLast().strType.equals("NULL")){
-				return jsonEleContainer.getLast();
+		LinkedList<Object> objContainer = new LinkedList<>();
+		while(incrementBranch(liBranchLoc, liPath)){
+			//如果取得键值对成功，并且键值对类型不是NULL
+			if(getObj(liPath, objContainer) && !((JsonElement)objContainer.getLast()).strType.equals("NULL")){
+				return (JsonElement)objContainer.getLast();
 			}
 		}
 
@@ -348,26 +479,34 @@ public class JsonFactory {
 		throw new RuntimeException("No such peer json element"); 
 	}
 	/*
-	 * 通过代表键值对路径的liPath，找到对应的键值对对象，如果成功返回true，并通过jsonEleContainer链表
-	 * 返回指向该对象的引用，如果失败返回false。如果liPath指向一个数组值，则无法获得键值对象，返回false
+	 * 通过代表键值对或数组元素路径的liPath，找到对应的键值对或元素，如果成功返回true，并通过objContainer链表
+	 * 返回指向该对象的引用，如果失败返回false。
 	 */
-	static boolean getJsonElement(LinkedList<Object> liPath, LinkedList<JsonElement> jsonEleContainer){
+	static boolean getObj(LinkedList<Object> liPath, LinkedList<Object> objContainer){
+		objContainer.clear();
+		objContainer.add(null);
 		stkPath.clear();  //追踪当前路径
 
 		Object objCur = jsonObj;
 
+		/*
+		 * objCur是当前所处的对象，objLoc是在当前所处对象objCur下的路径。
+		 * 如果objCur指向元组，则objLoc应该是String类型，表示这个元组下的键值为objLoc的元素
+		 * 如果objCur指向数组，则objLoc应该是Integer类型，表示这个数组下的第objLoc个元素
+		 */
 		for(Object objLoc : liPath){
 			stkPath.push(objLoc);
 
 			if(objLoc instanceof String){
 				if(objCur instanceof JsonObject){
 					String strLoc = (String)objLoc;
-					JsonObject jsonObj = (JsonObject)objCur;
-					jsonObjCur = jsonObj;
-					if(!jsonObj.getJsonElement(strLoc, jsonEleContainer)){
+
+					LinkedList<JsonElement> jsonEleContainer = new LinkedList<>();
+					if(!((JsonObject)objCur).getJsonElement(strLoc, jsonEleContainer)){
 						return false;
 					}
 					objCur = jsonEleContainer.getLast().objVal;
+					objContainer.set(0, jsonEleContainer.getLast());  //objContainer存放最近一次的有效键值对
 				}
 				else{
 					return false;
@@ -377,27 +516,26 @@ public class JsonFactory {
 				if(objCur instanceof JsonArray){
 					Integer nLoc = (Integer)objLoc;
 					JsonArray jsonArr = (JsonArray)objCur;
-					LinkedList<Object> objValContainer = new LinkedList<>();
-					if(!jsonArr.getVal(nLoc, objValContainer)){
+					if(!jsonArr.getVal(nLoc, objContainer)){  //objContianer存放最近一次有效的数组元素
 						return false;
 					}
-					objCur = objValContainer.getLast();
+					objCur = objContainer.getLast();
 				}
 				else{
 					return false;
 				}
 			}
 		}
-		
+
 		return true;
 	}
 	
 	/*
 	 * JsonElement类定义了键值对类
-	 * strType为该键值对的值的类型（group，repeated，INT32，FLOAT，BINARY，，BOOLEAN，NULL）
-	 * Object类型的objVal，存放值的实体，因为值的类型，不定，所以采用Object类型存储
-	 * liPath包含从顶层json对象的键值到该键值对的键值的路径，链表的能够容纳的引用类型只可能为Integer和String
-	 * 类型，Integer类型代表路径在数组中的位置，String类型代表路径在经过的某一键值对的键值
+	 * strType为该键值对的值的类型（group，repeated，INT32，FLOAT，BINARY，BOOLEAN，NULL）
+	 * Object类型的objVal，存放值的实体，因为值的类型不定，所以采用Object类型存储
+	 * liPath包含从顶层json对象的键值到该键值对的键值的路径，链表的能够容纳的引用类型只可能为Integer和String,
+	 * Integer类型代表路径在数组中的位置，String类型代表路径在经过的某一键值对的键值
 	 */
 	class JsonElement {
 		JsonElement(Object objVal, String strType, Stack<Object> stk){
@@ -410,9 +548,7 @@ public class JsonFactory {
 
 		String strType;
 		Object objVal;
-		LinkedList<Object> liPath = new LinkedList<>(); //pathList contains the path from top-level object to this element
-										//The element in this list could be either Integer representing a
-										//index of this in a array, or String representing a name of a key-value
+		LinkedList<Object> liPath = new LinkedList<>(); 
 	}
 	/*
 	 * JsonObject类定义了json对象

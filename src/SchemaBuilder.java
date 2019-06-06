@@ -38,10 +38,10 @@ public class SchemaBuilder {
 					continue;
 				}
 				else{
-					if(obj instanceof Integer){
+					if(obj instanceof Long){
 						strSchema.append("int32 " + strName + ";\n");
 					}
-					else if(obj instanceof Float){
+					else if(obj instanceof Double){
 						strSchema.append("float " + strName + ";\n");
 					}
 					else if(obj instanceof String){
@@ -205,6 +205,7 @@ public class SchemaBuilder {
 	static LinkedList<String> tokenize(String strOri, char[] cbrace){
 		// truncate the prefix until '"' and suffix invalid letters and append a ',' to it
 		strOri = strOri.substring(strOri.indexOf(cbrace[0]) + 1, strOri.lastIndexOf(cbrace[1])) + ',';
+		strOri = strOri.replaceFirst("\\s*", "");
 		LinkedList<String> liToken = new LinkedList<String>();
 		String strToken;
 
@@ -254,7 +255,9 @@ public class SchemaBuilder {
 				//If there is any char in stack, it means this ',' doesn't split this object
 				if(stk.empty()){
 					strToken = strOri.substring(nStr, nStp);
-					liToken.add(strToken);
+					if(!strToken.isEmpty()){
+						liToken.add(strToken);
+					}
 					nStr = nStp + 1;   //Move nStr to nStp + 1, if this comma is the last comma, 
 									   //nStr == nLen
 					nStp = nStr == nLen ? nLen - 1 : nStp; //If nStp is nLen - 1, in the next loop
