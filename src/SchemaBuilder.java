@@ -68,12 +68,22 @@ public class SchemaBuilder {
 
 			String strType;
 			if(JsonFactory.queryOptional(jsonEle)){
-				strSchema.append("optional ");
 				if(jsonEle.strType.equals("NULL")){
 					jsonEle = JsonFactory.getFirstPeerJsonElement(jsonEle);
 					strType = jsonEle.strType;
+					if(strType.equals("repeated")){
+						strSchema.append("repeated ");
+					}
+					else{
+						strSchema.append("optional ");
+					}
+				}
+				else if(jsonEle.strType.equals("repeated")){
+					strSchema.append("repeated ");
+					strType = jsonEle.strType;
 				}
 				else{
+					strSchema.append("optional ");
 					strType = jsonEle.strType;
 				}
 			}
@@ -81,9 +91,6 @@ public class SchemaBuilder {
 				//当jsonEle不是某一个数组的后代键值对，并且它类型为NULL，忽略它
 				if(jsonEle.strType.equals("NULL")){
 					continue;
-				}
-				else if(jsonEle.strType.equals("repeated")){
-					strSchema.append("repeated ");
 				}
 				else{
 					strSchema.append("required ");
