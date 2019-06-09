@@ -58,7 +58,13 @@ public class Writer{
 						grp.append(strName, ((Double)obj).floatValue());
 					}
 					else if(obj instanceof String){
-						grp.append(strName, (String)obj);
+						/*
+						 * 去除字符串两端的引号
+						 */
+						String strWithQut = (String)obj;
+						String strWithoutQut = strWithQut.substring(strWithQut.indexOf("\""), 
+								strWithQut.lastIndexOf("\""));
+						grp.append(strName, strWithoutQut);
 					}
 					else if(obj instanceof Boolean){
 						grp.append(strName, (Boolean)obj);
@@ -97,7 +103,13 @@ public class Writer{
 				grp.append(strName, (Boolean)jsonEle.objVal);
 				break;
 			case "BINARY":
-				grp.append(strName, (String)jsonEle.objVal);
+				/*
+				 * 去除字符串两端的引号
+				 */
+				String strWithQut = (String)jsonEle.objVal;
+				String strWithoutQut = strWithQut.substring(strWithQut.indexOf("\"") + 1, 
+						strWithQut.lastIndexOf("\""));
+				grp.append(strName, strWithoutQut);
 				break;
 			default:
 				break;
