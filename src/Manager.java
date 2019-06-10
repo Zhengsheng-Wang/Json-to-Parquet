@@ -1,3 +1,4 @@
+import java.util.LinkedList;
 import java.util.List;
 
 import java.io.IOException;
@@ -14,16 +15,21 @@ public class Manager {
 				+ ".parq";
 
 		JsonFactory jsonFactory = new JsonFactory();
-		jsonFactory.run(liJson.get(0));
-		JsonFactory.JsonObject jsonObj = JsonFactory.jsonObj;
-		
 		SchemaBuilder schemaBuilder = new SchemaBuilder();
-		schemaBuilder.transform(jsonObj);
-		StringBuilder strSchema = SchemaBuilder.strSchema;
+		schemaBuilder.jsonFactory = jsonFactory;
+
+		LinkedList<JsonFactory.JsonObject> liJsonObj = new LinkedList<>();
+		LinkedList<String> liStrSchema = new LinkedList<>();
+		for(int i = 0; i != liJson.size(); ++i){
+			jsonFactory.run(liJson.get(i));
+			liJsonObj.add(JsonFactory.jsonObj);
+			
+			schemaBuilder.transform(JsonFactory.jsonObj);
+			liStrSchema.add(schemaBuilder.strSchema.toString());
+		}
 		
 		Writer writer = new Writer();
-
-		writer.write(strSchema.toString(), jsonObj, strOutPath);
+		writer.write(liStrSchema, liJsonObj, strOutPath);
 		return;
 	}
 }

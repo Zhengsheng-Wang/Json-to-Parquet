@@ -20,6 +20,7 @@ public class JsonFactory {
 	 *	         调用buildObj函数建立JsonFactory的内部类JsonObject定义的json对象
 	 */
 	public void run(String strJson){
+		stkPath.clear();
 		jsonObj = buildObj(strJson);
 		fillObjWithNull(jsonObj);    //向jsonObj中的漏值处（本来应该有键值对的地方）添加类型为NULL的键值对
 		long2doubleInObject(jsonObj);  //支持整型类型自动提升为Double型
@@ -183,33 +184,31 @@ public class JsonFactory {
 		LinkedList<Integer> liBranchLoc = new LinkedList<>();
 		
 		initialList(liBranchLoc, liPath);
+		LinkedList<Object> objContainer = new LinkedList<>();
 		
-		LinkedList<Object> objContainer = new LinkedList<>();  //没用上，只是为了调用getObj函数
 		do{
-			/*
-			 *如果没有找到这个键值对的对等键值对(这个键值对的键在某一待查找的元组中根本不存在),
-			 *则向阻碍这个对等键值对查找路径的元组添加值为null的键值对,键名有stkPath决定。
-			 *stkPath存放的是本以为该元组中应该存在的键值.
-			 *阻碍查找路径的结点只能是元组结点，因为每次递增路径的时候都是按照当前路径设置过数组大小的
-			 * 数组索引不会越界
-			 */
 			if(!getObj(liPath, objContainer)){
 				/*
-				 * 当查找失败时，objContainer中的值只可能是最近一次的有效键值对（JsonElement）或JsonObject，
-				 * 不可能是JsonArray
-				 * 因为每次的查找路径在分支处的最大值是根据这个分叉点处JsonArray的大小设置的，
-				 * 所以不可能出现取不到某一个数组元素的情况
+				 * 如果没有取得有效值，由于空数组对取值的影响只会存在于在incrementBranch中查询数组大小的时候，
+				 * 现在查找的都是键值对，所以阻碍查找到liPath指示值的情况只可能有以下两种：
+				 * 1.没有对等键值对
+				 * 2.对等键值对的类型为NULL
 				 */
-				if(objContainer.getLast() instanceof JsonObject){
-					//如果最近一次成功的查找存在于一个数组内，那么最近一次有效的查找到的值是JsonObject
-					((JsonObject)objContainer.getLast()).addPair(new JsonElement(null, "NULL", stkPath));
-				}
-				else if(objContainer.getLast() instanceof JsonElement){
-					JsonElement jsonPnt = (JsonElement)objContainer.getLast();
-					if(!jsonPnt.strType.equals("NULL")){
-						//如果最近一次有效的键值对已经是NULL类型了，那就不用填充null值了
-						((JsonObject)jsonPnt.objVal).addPair(new JsonElement(null, "NULL", stkPath));
+				Object objLastValid = objContainer.getLast();
+				if(objLastValid instanceof JsonElement){
+					//最后取得的有效值是键值对
+					JsonElement jsonEleLastValid = (JsonElement)objLastValid;
+					if(jsonEleLastValid.strType.equals("group")){
+						//键值对的类型是元组，这对应于情况1，该元组中没有对等键值对，需要添加
+						JsonObject jsonObjLastValid = (JsonObject)jsonEleLastValid.objVal;
+						jsonObjLastValid.addPair(new JsonElement(null, "NULL", stkPath));
 					}
+					//其它的情况应该是“键值对的类型是NULL”，这时就不用添加null了
+				}
+				else{
+					//否则，最后取得的有效值是在一个数组中的元组，并且这个元组不包含对等键值对，需要添加
+					JsonObject jsonObjLastValid = (JsonObject)objLastValid;
+					jsonObjLastValid.addPair(new JsonElement(null, "NULL", stkPath));
 				}
 			}
 		}while(incrementBranch(liBranchLoc, liPath));
@@ -325,7 +324,7 @@ public class JsonFactory {
 	 * ，liBranchSize，liBranchCnt三个链表中，liBranchLoc存放该branch点在liPath中的位置（从顶层JsonObject的
 	 * 键值算起），liBranchSize存放该branch点的数组元素个数，liBranchCnt中对应的位置初始化为零
 	 */
-	static void initialList(LinkedList<Integer> liBranchLoc, LinkedList<Object> liPath){
+	void initialList(LinkedList<Integer> liBranchLoc, LinkedList<Object> liPath){
 		for(int nInd = 1; nInd != liPath.size(); ++nInd){
 			/*
 			 *因为json数据的数组不可能直接出现在json数据中，在最上面一定有一个键值，所以nInd从1而不是0开始
@@ -339,7 +338,7 @@ public class JsonFactory {
 		}	
 	}
 
-	static boolean incrementBranch(LinkedList<Integer> liBranchLoc, LinkedList<Object> liPath){
+	boolean incrementBranch(LinkedList<Integer> liBranchLoc, LinkedList<Object> liPath){
 		//如果没有 经过数组结点直接返回false退出
 		if(liBranchLoc.size() == 0){
 			return false;
@@ -410,16 +409,74 @@ public class JsonFactory {
 			else{
 				/*
 				 * 这里的getObj取出的应该是一个数组
-				 * 如果此处的getObj无法取得有效值，只可能是因为两种情况：
-				 * 一：在取数组时，这个数组的父数组对应的键值对的值为null
-				 * 二：在取数组时，这个数组的父数组为空数组
-				 * 在这两种情况下，liPath路径，在在父数组结点之后的值应该全为0
+				 * 如果此处的getObj无法取得有效值，只可能是因为这种情况：上一次在高位w上递增后，
+				 * liPath在w位之后的所有分支节点上的值全为0，但是w位之后的结点有可能出现：NULL类型键值对、
+				 * 没有对等键值对、空数组(用0去索引空数组是无法索引成功的)这几种阻碍取得liPath指示位置值的情况
+				 * 如果出现了这种情况，根据最后一次请求成功的值的类型做出不同反应
+				 * 
+				 * 如果没有找到这个键值对的对等键值对(这个键值对的键在某一待查找的元组中根本不存在),
+				 * 则向阻碍这个对等键值对查找路径的元组添加值为null的键值对,键名由stkPath决定。
+				 * stkPath存放的是本以为该元组中应该存在的键值.
 				 */
-				continue;
+				Object objLastValid = objContainer.getLast();   //objLastValid是最后一次取得的有效的元素
+				if(objLastValid instanceof JsonElement){
+					//如果最后一次取得的有效元素是键值对
+					JsonElement jsonEle = (JsonElement)objLastValid;
+					if(jsonEle.strType.equals("group")){
+						/*
+						 * 如果最后一次取得的有效键值对是元组类型，也就是说这个元组下面不包括这个键值对
+						 * 那么添加一个类型为NULL的同名键值对
+						 */
+						JsonObject jsonObj = (JsonObject)jsonEle.objVal;
+						jsonObj.addPair(new JsonElement(null, "NULL", stkPath));
+					}
+					else if(jsonEle.strType.equals("repeated")){
+						/*
+						 * 如果最后一次取得的有效键值对是数组类型，也就是说这是一个空数组
+						 * 不做任何操作
+						 */
+					}
+					//找到那个出现问题的分叉节点的位置，并将其加一后赋给nInd，因为最外层的for循环要减一
+					//所以此时的nInd个结点就是这个问题结点
+					//在第nInd个结点上尝试增一
+					nInd = getLastBranchIndexOfPath(stkPath);
+				}
+				else if(objLastValid instanceof JsonObject){
+					/*
+					 * 如果最后一次查找成功的值是存在于某一个数组内，说明
+					 * 这个值是一个作为一个数组元素的元组，之所以没有找到值，是因为这个元组没有包含
+					 * 这个键值对。
+					 * 添加类型为NULL的同名键值对
+					 */
+					JsonObject jsonObj = (JsonObject)objLastValid;
+					jsonObj.addPair(new JsonElement(null, "NULL", stkPath));
+					//理由同上
+					nInd = getLastBranchIndexOfPath(stkPath);
+				}
+				else if(objLastValid instanceof JsonArray){
+					/*
+					 * 如果最后一次查找成功的值就是一个数组，说明，查找没有成功的值
+					 * 是一个嵌套在这个数组里的空数组
+					 */
+					stkPath.pop();
+					nInd = getLastBranchIndexOfPath(stkPath);
+				}
 			}
 		}
 		
 		return false;
+	}
+	/*
+	 * 找到一个路径包含的数组结点索引的个数
+	 */
+	int getLastBranchIndexOfPath(Stack<Object> liPath){
+		int n = 0;
+		for(Object obj : liPath){
+			if(obj instanceof Integer){
+				++n;
+			}
+		}
+		return n - 1;
 	}
 	
 
@@ -429,7 +486,7 @@ public class JsonFactory {
 	 * 遍历这个键值对象的在整个json对象中的所有对等键值对象，如果有一个键值对象为null，则说明该键值对象的属性
 	 * 为optional
 	 */
-	static boolean queryOptional(JsonElement jsonEle){
+	boolean queryOptional(JsonElement jsonEle){
 		if(jsonEle.strType.equals("reapeated")){
 			return true;
 		}
@@ -441,31 +498,34 @@ public class JsonFactory {
 		initialList(liBranchLoc, liPath);
 		
 		boolean bNullExisting = false;  //有对等值类型为NULL、或某一对等键值根本不存在的标志
+		boolean bValidExisting = false;  //有对等值是有效类型的标志，为了排除所有对等值和这个键值对自己都是null的情况 
 		LinkedList<Object> objContainer = new LinkedList<>();
 		do{
 			if(getObj(liPath, objContainer)){
+				//只有当能够通过这一次的liPath取出对等有效键值对时，才可能判断出
+				//键值对是否会因为这个有效键值对而变得optinal
 				//如果键值对jsonEle有属性为repeated的对等键值对，返回false
 				if(((JsonElement)objContainer.getLast()).strType.equals("repeated")){
 					return true;
 				}
-				if(((JsonElement)objContainer.getLast()).strType.equals("NULL")){
+				else if(((JsonElement)objContainer.getLast()).strType.equals("NULL")){
 					bNullExisting = true;
 				}
-			}
-			else{
-				//如果liPath指示的值不存在,则说明该键值对对象存在被忽略的对象,该键值可能为optional
-				bNullExisting = true;
+				else{
+					//如果取得的值既不是数组类型，也不是NULL类型，那证明存在有效值，这个键值对可以是optional的
+					bValidExisting = true;
+				}
 			}
 		}while(incrementBranch(liBranchLoc, liPath));
 		
-		return bNullExisting;
+		return bNullExisting && bValidExisting;
 	}
 	/////////////////
 	/*
 	 * 得到键值对的值的类型，如果传入的jsonEle的值为null，则遍历它的对等键值对，判断它该有的
 	 * 类型
 	 */
-	static String getJsonValType(JsonElement jsonEle){
+	String getJsonValType(JsonElement jsonEle){
 		//如果jsonEle的类型不为NULL，直接返回其类型即可
 		if(!jsonEle.strType.equals("NULL")){
 			return jsonEle.strType;
@@ -494,7 +554,7 @@ public class JsonFactory {
 	/*
 	 * 因为getFirstPeerJsonElement函数只在已经确定jsonEle为optinal的时候调用，所以一定能取得有效值
 	 */
-	static JsonElement getFirstPeerJsonElement(JsonElement jsonEle){
+	JsonElement getFirstPeerJsonElement(JsonElement jsonEle){
 		LinkedList<Object> liPath = new LinkedList<Object>(jsonEle.liPath);
 
 		LinkedList<Integer> liBranchLoc = new LinkedList<>();

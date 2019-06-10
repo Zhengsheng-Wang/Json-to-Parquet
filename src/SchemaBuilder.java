@@ -7,6 +7,7 @@ import java.util.Stack;
  */
 public class SchemaBuilder {
 	static StringBuilder strSchema;
+	static JsonFactory jsonFactory;
 
 	public void transform(JsonFactory.JsonObject jsonObj){
 		strSchema = new StringBuilder();
@@ -67,9 +68,9 @@ public class SchemaBuilder {
 		for(JsonFactory.JsonElement jsonEle : jsonObj.liMem){
 
 			String strType;
-			if(JsonFactory.queryOptional(jsonEle)){
+			if(jsonFactory.queryOptional(jsonEle)){
 				if(jsonEle.strType.equals("NULL")){
-					jsonEle = JsonFactory.getFirstPeerJsonElement(jsonEle);
+					jsonEle = jsonFactory.getFirstPeerJsonElement(jsonEle);
 					strType = jsonEle.strType;
 					if(strType.equals("repeated")){
 						strSchema.append("repeated ");

@@ -1,4 +1,5 @@
 import java.io.IOException;
+import java.util.LinkedList;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -16,20 +17,21 @@ import org.apache.parquet.example.data.simple.SimpleGroupFactory;
  * jsonObj表示的json对象写入strOutPath指示的文件中
  */
 public class Writer{
-	public void write(String strSchema, JsonFactory.JsonObject jsonObj, String strOutPath)throws IOException{
+	public void write(LinkedList<String> liStrSchema, LinkedList<JsonFactory.JsonObject> liJsonObj, String strOutPath)throws IOException{ 
 		Path path = new Path(strOutPath);
 
-		MessageType schema = MessageTypeParser.parseMessageType(strSchema);
-
-		GroupFactory factory = new SimpleGroupFactory(schema);
 		Configuration configuration = new Configuration();
-
+		MessageType schema = MessageTypeParser.parseMessageType(liStrSchema.getLast());
 		ExampleParquetWriter.Builder builder = ExampleParquetWriter.builder(path).withConf(configuration).withType(schema);
 		ParquetWriter<Group> writer = builder.build();
-		
-		Group grp = factory.newGroup();
-		writeGroup(grp, jsonObj);
-		writer.write(grp);
+		GroupFactory factory = new SimpleGroupFactory(schema);
+
+		for(int i = 0; i != liStrSchema.size(); ++i){
+			Group grp = factory.newGroup();
+
+			writeGroup(grp, liJsonObj.get(i));
+			writer.write(grp);
+		}
 		writer.close();
 	}
 
