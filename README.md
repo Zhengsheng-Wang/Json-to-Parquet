@@ -7,3 +7,5 @@ Parquet是一种HDFS列式文件格式，实现了对Google Protocol Buffers的�
 JsonFactory.java完成了解析Json格式数据的工作。
 
 SchemaBuilder.java根据对Json数据的解析构建存储为Parquet格式所需要的schema。
+
+Writer.java利用schema，在hadoop提供的接口的基础上将Json格式数据转换为Parquet格式存储至数据库。
